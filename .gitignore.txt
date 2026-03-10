@@ -1,0 +1,7 @@
+CPU1_RAM/
+targetConfigs/*.ccxml.launches
+*.obj
+*.out
+*.map
+*.d_raw
+*.pp
