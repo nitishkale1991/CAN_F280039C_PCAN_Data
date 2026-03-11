@@ -189,7 +189,7 @@ void main()
         txMsg[msgIdx].data[0]  = (uint16_t)(msgIdx & 0xFFU);
         for(i = 0; i < (int)dataBytes; i++)
         {
-            txMsg[msgIdx].data[i] = 0x11;
+            txMsg[msgIdx].data[i] = 0xA1;
         }
     }
 
