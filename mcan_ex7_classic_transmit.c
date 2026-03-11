@@ -108,7 +108,7 @@
 //
 int32_t     error = 0;
 MCAN_TxBufElement txMsg[NUM_OF_MSG];
-volatile uint32_t nbtp_reg;
+/*volatile uint32_t nbtp_reg;
 volatile uint32_t prescaler_reg;
 volatile uint32_t time_seg1_reg;
 volatile uint32_t time_seg2_reg;
@@ -136,7 +136,7 @@ volatile uint32_t cccr_init;
 volatile uint32_t cccr_cce;
 volatile uint32_t cccr_ase;
 volatile uint32_t txfqs_tffl;
-volatile uint32_t txbto_value;
+volatile uint32_t txbto_value;*/
 //
 // Function Prototype.
 //
@@ -163,8 +163,8 @@ void main()
     //
     MCAN_selectClockSource(MCANA_DRIVER_BASE, MCAN_CLOCK_SOURCE_SYS);
     SysCtl_setMCANClk(MCAN_CLK_DIVIDER);
-    sysclk_hz = SysCtl_getClock(DEVICE_OSCSRC_FREQ);
-    mcanclk_hz = sysclk_hz / ((uint32_t)MCAN_CLK_DIVIDER + 1U);
+    //sysclk_hz = SysCtl_getClock(DEVICE_OSCSRC_FREQ);
+    //mcanclk_hz = sysclk_hz / ((uint32_t)MCAN_CLK_DIVIDER + 1U);
 
     //
     // Configuring the GPIOs for MCAN.
@@ -201,8 +201,8 @@ void main()
     //
     // Write message to Message RAM.
     //
-    // DEBUG: Read register immediately after setting
-    asm(" NOP");
+    // DEBUG: Read register immediately after setting,
+    /*    asm(" NOP");
     nbtp_reg = HWREG(MCANA_DRIVER_BASE + MCAN_NBTP);
     asm(" NOP");
     prescaler_reg = (nbtp_reg & MCAN_NBTP_NBRP_M) >> MCAN_NBTP_NBRP_S;
@@ -236,7 +236,7 @@ void main()
     txbto_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBTO);
     asm(" NOP");
     txfqs_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXFQS);
-    asm(" NOP");
+    asm(" NOP");    */
     for(msgIdx = 0U; msgIdx < NUM_OF_MSG; msgIdx++)
     {
         MCAN_writeMsgRam(MCANA_DRIVER_BASE, MCAN_MEM_TYPE_BUF, msgIdx,
@@ -263,7 +263,7 @@ void main()
 
         while(MCAN_getTxBufReqPend(MCANA_DRIVER_BASE))
         {
-            psr_reg = HWREG(MCANA_DRIVER_BASE + MCAN_PSR);
+            /*            psr_reg = HWREG(MCANA_DRIVER_BASE + MCAN_PSR);
             psr_lec = (psr_reg & MCAN_PSR_LEC_M) >> MCAN_PSR_LEC_S;
             psr_act = (psr_reg & MCAN_PSR_ACT_M) >> MCAN_PSR_ACT_S;
             psr_ew = (psr_reg & MCAN_PSR_EW) >> 6U;
@@ -279,12 +279,12 @@ void main()
             txbar_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBAR);
             txbrp_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBRP);
             txbto_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBTO);
-            txfqs_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXFQS);
+            txfqs_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXFQS);            */
         }
         }
 
         //
-        // Wait 500 seconds before transmitting next batch.
+        // Wait 500 milli seconds before transmitting next batch.
         //
         DEVICE_DELAY_US(500000);
     }
