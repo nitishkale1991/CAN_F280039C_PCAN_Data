@@ -74,11 +74,11 @@
 //
 // Defines.
 //
-#define NUM_OF_MSG                      (10U)
-#define MCAN_STD_ID_FILTER_NUM          (0U)
+#define NUM_OF_MSG                      (1U)
+#define MCAN_STD_ID_FILTER_NUM          (1U)
 #define MCAN_EXT_ID_FILTER_NUM          (0U)
-#define MCAN_FIFO_0_NUM                 (0U)
-#define MCAN_FIFO_0_ELEM_SIZE           (MCAN_ELEM_SIZE_64BYTES)
+#define MCAN_FIFO_0_NUM                 (1U)
+#define MCAN_FIFO_0_ELEM_SIZE           (MCAN_ELEM_SIZE_8BYTES)
 #define MCAN_FIFO_1_NUM                 (0U)
 #define MCAN_FIFO_1_ELEM_SIZE           (MCAN_ELEM_SIZE_64BYTES)
 #define MCAN_RX_BUFF_NUM                (0U)
@@ -102,6 +102,11 @@
 #define MCAN_TX_BUFF_START_ADDR         (MCAN_RX_BUFF_START_ADDR + (MCAN_getMsgObjSize(MCAN_RX_BUFF_ELEM_SIZE) * 4U * MCAN_RX_BUFF_NUM))
 #define MCAN_TX_EVENT_START_ADDR        (MCAN_TX_BUFF_START_ADDR + (MCAN_getMsgObjSize(MCAN_TX_BUFF_ELEM_SIZE) * 4U * (MCAN_TX_BUFF_SIZE + MCAN_TX_FQ_SIZE)))
 
+#define PCAN_CMD_MSG_ID                 (0x201U)
+#define MCAN_RESP_MSG_ID                (0x123U)
+#define MCAN_STD_ID_SHIFT               (18U)
+#define PERIODIC_LOOP_US                (100000U)
+#define PERIODIC_COUNTER_STEP           (1U)
 
 //
 // Global Variables.
@@ -144,9 +149,13 @@ static void MCANConfig(void);
 
 void main()
 {
-    uint32_t msgIdx = 0U;
+    uint32_t periodicCounter = 0U;
+    uint32_t rxStdId = 0U;
     int i = 0;
     uint32_t dataBytes = 8U;
+    MCAN_RxFIFOStatus rxFIFOStatus;
+    MCAN_RxBufElement rxMsg;
+    rxFIFOStatus.num = MCAN_RX_FIFO_NUM_0;
 
     //
     // Initialize device clock and peripherals
@@ -175,22 +184,18 @@ void main()
     //
     // Initialize message to transmit.
     //
-    for(msgIdx = 0U; msgIdx < NUM_OF_MSG; msgIdx++)
+    txMsg[0].id       = ((uint32_t)MCAN_RESP_MSG_ID << MCAN_STD_ID_SHIFT);
+    txMsg[0].rtr      = 0U;
+    txMsg[0].xtd      = 0U;
+    txMsg[0].esi      = 0U;
+    txMsg[0].dlc      = 8U;
+    txMsg[0].brs      = 0U;
+    txMsg[0].fdf      = 0U;
+    txMsg[0].efc      = 0U;
+    txMsg[0].mm       = 0xA0U;
+    for(i = 0; i < (int)dataBytes; i++)
     {
-        txMsg[msgIdx].id       = ((uint32_t)0x123U << 18U);
-        txMsg[msgIdx].rtr      = 0U;
-        txMsg[msgIdx].xtd      = 0U;
-        txMsg[msgIdx].esi      = 0U;
-        txMsg[msgIdx].dlc      = 8U;
-        txMsg[msgIdx].brs      = 0U;
-        txMsg[msgIdx].fdf      = 0U;
-        txMsg[msgIdx].efc      = 0U;
-        txMsg[msgIdx].mm       = (uint32_t)(0xA0U + msgIdx);
-        txMsg[msgIdx].data[0]  = (uint16_t)(msgIdx & 0xFFU);
-        for(i = 0; i < (int)dataBytes; i++)
-        {
-            txMsg[msgIdx].data[i] = 0xA1;
-        }
+        txMsg[0].data[i] = 0x00U;
     }
 
     //
@@ -237,56 +242,47 @@ void main()
     asm(" NOP");
     txfqs_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXFQS);
     asm(" NOP");    */
-    for(msgIdx = 0U; msgIdx < NUM_OF_MSG; msgIdx++)
-    {
-        MCAN_writeMsgRam(MCANA_DRIVER_BASE, MCAN_MEM_TYPE_BUF, msgIdx,
-                         &txMsg[msgIdx]);
-    }
+    MCAN_writeMsgRam(MCANA_DRIVER_BASE, MCAN_MEM_TYPE_BUF, 0U, &txMsg[0]);
 
     while(1)
     {
-        //
-        // Transmit all 10 frames.
-        //
-        //nbtp_reg = HWREG(MCANA_DRIVER_BASE + MCAN_O_NBTP);
-        //prescaler_reg = (nbtp_reg & MCAN_NBTP_NBRP_M) >> MCAN_NBTP_NBRP_S;
-        //time_seg1_reg = (nbtp_reg & MCAN_NBTP_NTSEG1_M) >> MCAN_NBTP_NTSEG1_S;
-        //time_seg2_reg = (nbtp_reg & MCAN_NBTP_NTSEG2_M) >> MCAN_NBTP_NTSEG2_S;
-        //sjw_reg = (nbtp_reg & MCAN_NBTP_NSJW_M) >> MCAN_NBTP_NSJW_S;  
-        for(msgIdx = 0U; msgIdx < NUM_OF_MSG; msgIdx++)
-        {
-            MCAN_txBufAddReq(MCANA_DRIVER_BASE, msgIdx);
+        periodicCounter += PERIODIC_COUNTER_STEP;
 
-            //
-            // Wait till the message is transmitted.
-            //
-
-        while(MCAN_getTxBufReqPend(MCANA_DRIVER_BASE))
+        MCAN_getRxFIFOStatus(MCANA_DRIVER_BASE, &rxFIFOStatus);
+        while(rxFIFOStatus.fillLvl > 0U)
         {
-            /*            psr_reg = HWREG(MCANA_DRIVER_BASE + MCAN_PSR);
-            psr_lec = (psr_reg & MCAN_PSR_LEC_M) >> MCAN_PSR_LEC_S;
-            psr_act = (psr_reg & MCAN_PSR_ACT_M) >> MCAN_PSR_ACT_S;
-            psr_ew = (psr_reg & MCAN_PSR_EW) >> 6U;
-            lec_reg = psr_lec;
-            act_reg = psr_act;
-            ecr_reg = HWREG(MCANA_DRIVER_BASE + MCAN_ECR);
-            ecr_tec = (ecr_reg & MCAN_ECR_TEC_M) >> MCAN_ECR_TEC_S;
-            ecr_rec = (ecr_reg & MCAN_ECR_REC_M) >> MCAN_ECR_REC_S;
-            tec_reg = ecr_tec;
-            rec_reg = ecr_rec;
-            ir_reg  = HWREG(MCANA_DRIVER_BASE + MCAN_IR);
-            cccr_reg = HWREG(MCANA_DRIVER_BASE + MCAN_CCCR);
-            txbar_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBAR);
-            txbrp_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBRP);
-            txbto_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXBTO);
-            txfqs_reg = HWREG(MCANA_DRIVER_BASE + MCAN_TXFQS);            */
-        }
+            memset(&rxMsg, 0, sizeof(rxMsg));
+            MCAN_readMsgRam(MCANA_DRIVER_BASE, MCAN_MEM_TYPE_FIFO, 0U,
+                            MCAN_RX_FIFO_NUM_0, &rxMsg);
+
+            MCAN_writeRxFIFOAck(MCANA_DRIVER_BASE, MCAN_RX_FIFO_NUM_0,
+                                rxFIFOStatus.getIdx);
+
+            rxStdId = (rxMsg.id >> MCAN_STD_ID_SHIFT) & 0x7FFU;
+            if((rxMsg.xtd == 0U) && (rxMsg.rtr == 0U) &&
+               (rxStdId == PCAN_CMD_MSG_ID))
+            {
+                txMsg[0].data[0] = (uint16_t)(periodicCounter & 0xFFU);
+                txMsg[0].data[1] = (uint16_t)((periodicCounter >> 8U) & 0xFFU);
+                txMsg[0].data[2] = (uint16_t)((periodicCounter >> 16U) & 0xFFU);
+                txMsg[0].data[3] = (uint16_t)((periodicCounter >> 24U) & 0xFFU);
+                txMsg[0].data[4] = 0x00U;
+                txMsg[0].data[5] = 0x00U;
+                txMsg[0].data[6] = 0x00U;
+                txMsg[0].data[7] = 0x00U;
+
+                MCAN_writeMsgRam(MCANA_DRIVER_BASE, MCAN_MEM_TYPE_BUF, 0U,
+                                 &txMsg[0]);
+                MCAN_txBufAddReq(MCANA_DRIVER_BASE, 0U);
+                while(MCAN_getTxBufReqPend(MCANA_DRIVER_BASE))
+                {
+                }
+            }
+
+            MCAN_getRxFIFOStatus(MCANA_DRIVER_BASE, &rxFIFOStatus);
         }
 
-        //
-        // Wait 500 milli seconds before transmitting next batch.
-        //
-        DEVICE_DELAY_US(500000);
+        DEVICE_DELAY_US(PERIODIC_LOOP_US);
     }
 
     //
@@ -300,6 +296,7 @@ static void MCANConfig(void)
     MCAN_InitParams initParams;
     MCAN_MsgRAMConfigParams    msgRAMConfigParams;
     MCAN_BitTimingParams       bitTimes;
+    MCAN_StdMsgIDFilterElement stdFilter;
 
     //
     //  Initializing all structs to zero to prevent stray values
@@ -307,6 +304,7 @@ static void MCANConfig(void)
     memset(&initParams, 0, sizeof(initParams));
     memset(&msgRAMConfigParams, 0, sizeof(msgRAMConfigParams));
     memset(&bitTimes, 0, sizeof(bitTimes));
+    memset(&stdFilter, 0, sizeof(stdFilter));
 
     //
     // Initialize MCAN Init parameters.
@@ -319,13 +317,33 @@ static void MCANConfig(void)
     //
     // Initialize Message RAM Sections Configuration Parameters
     //
+    msgRAMConfigParams.flssa                = MCAN_STD_ID_FILT_START_ADDR;
+    msgRAMConfigParams.lss                  = MCAN_STD_ID_FILTER_NUM;
+    msgRAMConfigParams.flesa                = MCAN_EXT_ID_FILT_START_ADDR;
+    msgRAMConfigParams.lse                  = MCAN_EXT_ID_FILTER_NUM;
     msgRAMConfigParams.txStartAddr          = MCAN_TX_BUFF_START_ADDR;
     // Tx Buffers Start Address.
     msgRAMConfigParams.txBufNum             = MCAN_TX_BUFF_SIZE;
     // Number of Dedicated Transmit Buffers.
+    msgRAMConfigParams.txFIFOSize           = MCAN_TX_FQ_SIZE;
     msgRAMConfigParams.txBufMode            = 0U;
     msgRAMConfigParams.txBufElemSize        = MCAN_TX_BUFF_ELEM_SIZE;
     // Tx Buffer Element Size.
+    msgRAMConfigParams.txEventFIFOStartAddr = MCAN_TX_EVENT_START_ADDR;
+    msgRAMConfigParams.txEventFIFOSize      = MCAN_TX_EVENT_SIZE;
+    msgRAMConfigParams.txEventFIFOWaterMark = 0U;
+    msgRAMConfigParams.rxFIFO0startAddr     = MCAN_FIFO_0_START_ADDR;
+    msgRAMConfigParams.rxFIFO0size          = MCAN_FIFO_0_NUM;
+    msgRAMConfigParams.rxFIFO0waterMark     = 1U;
+    msgRAMConfigParams.rxFIFO0OpMode        = 0U;
+    msgRAMConfigParams.rxFIFO1startAddr     = MCAN_FIFO_1_START_ADDR;
+    msgRAMConfigParams.rxFIFO1size          = MCAN_FIFO_1_NUM;
+    msgRAMConfigParams.rxFIFO1waterMark     = 0U;
+    msgRAMConfigParams.rxFIFO1OpMode        = 0U;
+    msgRAMConfigParams.rxBufStartAddr       = MCAN_RX_BUFF_START_ADDR;
+    msgRAMConfigParams.rxBufElemSize        = MCAN_RX_BUFF_ELEM_SIZE;
+    msgRAMConfigParams.rxFIFO0ElemSize      = MCAN_FIFO_0_ELEM_SIZE;
+    msgRAMConfigParams.rxFIFO1ElemSize      = MCAN_FIFO_1_ELEM_SIZE;
 
     //
     // Initialize bit timings for 500 kbps.
@@ -369,6 +387,12 @@ static void MCANConfig(void)
     // Configure Message RAM Sections
     //
     MCAN_msgRAMConfig(MCANA_DRIVER_BASE, &msgRAMConfigParams);
+
+    stdFilter.sfid1 = PCAN_CMD_MSG_ID;
+    stdFilter.sfid2 = PCAN_CMD_MSG_ID;
+    stdFilter.sfec  = MCAN_STDFILTEC_FIFO0;
+    stdFilter.sft   = MCAN_STDFILT_DUAL;
+    MCAN_addStdMsgIDFilter(MCANA_DRIVER_BASE, 0U, &stdFilter);
 
     //
     // Take MCAN out of the SW initialization mode
