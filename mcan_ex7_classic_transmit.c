@@ -74,10 +74,11 @@
 //
 // Defines.
 //
+#define COUNTER_COUNT                   (5U)
 #define NUM_OF_MSG                      (1U)
-#define MCAN_STD_ID_FILTER_NUM          (1U)
+#define MCAN_STD_ID_FILTER_NUM          (COUNTER_COUNT)
 #define MCAN_EXT_ID_FILTER_NUM          (0U)
-#define MCAN_FIFO_0_NUM                 (1U)
+#define MCAN_FIFO_0_NUM                 (COUNTER_COUNT)
 #define MCAN_FIFO_0_ELEM_SIZE           (MCAN_ELEM_SIZE_8BYTES)
 #define MCAN_FIFO_1_NUM                 (0U)
 #define MCAN_FIFO_1_ELEM_SIZE           (MCAN_ELEM_SIZE_64BYTES)
@@ -102,8 +103,8 @@
 #define MCAN_TX_BUFF_START_ADDR         (MCAN_RX_BUFF_START_ADDR + (MCAN_getMsgObjSize(MCAN_RX_BUFF_ELEM_SIZE) * 4U * MCAN_RX_BUFF_NUM))
 #define MCAN_TX_EVENT_START_ADDR        (MCAN_TX_BUFF_START_ADDR + (MCAN_getMsgObjSize(MCAN_TX_BUFF_ELEM_SIZE) * 4U * (MCAN_TX_BUFF_SIZE + MCAN_TX_FQ_SIZE)))
 
-#define PCAN_CMD_MSG_ID                 (0x201U)
-#define MCAN_RESP_MSG_ID                (0x123U)
+#define PCAN_CMD_BASE_MSG_ID            (0x201U)
+#define MCAN_RESP_BASE_MSG_ID           (0x301U)
 #define MCAN_STD_ID_SHIFT               (18U)
 #define PERIODIC_LOOP_US                (100000U)
 #define PERIODIC_COUNTER_STEP           (1U)
@@ -113,6 +114,22 @@
 //
 int32_t     error = 0;
 MCAN_TxBufElement txMsg[NUM_OF_MSG];
+static const uint32_t requestMsgIds[COUNTER_COUNT] =
+{
+    PCAN_CMD_BASE_MSG_ID,
+    (PCAN_CMD_BASE_MSG_ID + 1U),
+    (PCAN_CMD_BASE_MSG_ID + 2U),
+    (PCAN_CMD_BASE_MSG_ID + 3U),
+    (PCAN_CMD_BASE_MSG_ID + 4U)
+};
+static const uint32_t responseMsgIds[COUNTER_COUNT] =
+{
+    MCAN_RESP_BASE_MSG_ID,
+    (MCAN_RESP_BASE_MSG_ID + 1U),
+    (MCAN_RESP_BASE_MSG_ID + 2U),
+    (MCAN_RESP_BASE_MSG_ID + 3U),
+    (MCAN_RESP_BASE_MSG_ID + 4U)
+};
 /*volatile uint32_t nbtp_reg;
 volatile uint32_t prescaler_reg;
 volatile uint32_t time_seg1_reg;
@@ -149,8 +166,10 @@ static void MCANConfig(void);
 
 void main()
 {
-    uint32_t periodicCounter = 0U;
+    uint32_t periodicCounter[COUNTER_COUNT] = {0U};
     uint32_t rxStdId = 0U;
+    uint32_t counterIdx = 0U;
+    uint32_t matchedCounterIdx = COUNTER_COUNT;
     int i = 0;
     uint32_t dataBytes = 8U;
     MCAN_RxFIFOStatus rxFIFOStatus;
@@ -184,7 +203,7 @@ void main()
     //
     // Initialize message to transmit.
     //
-    txMsg[0].id       = ((uint32_t)MCAN_RESP_MSG_ID << MCAN_STD_ID_SHIFT);
+    txMsg[0].id       = ((uint32_t)responseMsgIds[0] << MCAN_STD_ID_SHIFT);
     txMsg[0].rtr      = 0U;
     txMsg[0].xtd      = 0U;
     txMsg[0].esi      = 0U;
@@ -246,7 +265,10 @@ void main()
 
     while(1)
     {
-        periodicCounter += PERIODIC_COUNTER_STEP;
+        for(counterIdx = 0U; counterIdx < COUNTER_COUNT; counterIdx++)
+        {
+            periodicCounter[counterIdx] += PERIODIC_COUNTER_STEP;
+        }
 
         MCAN_getRxFIFOStatus(MCANA_DRIVER_BASE, &rxFIFOStatus);
         while(rxFIFOStatus.fillLvl > 0U)
@@ -259,14 +281,33 @@ void main()
                                 rxFIFOStatus.getIdx);
 
             rxStdId = (rxMsg.id >> MCAN_STD_ID_SHIFT) & 0x7FFU;
-            if((rxMsg.xtd == 0U) && (rxMsg.rtr == 0U) &&
-               (rxStdId == PCAN_CMD_MSG_ID))
+            matchedCounterIdx = COUNTER_COUNT;
+            for(counterIdx = 0U; counterIdx < COUNTER_COUNT; counterIdx++)
             {
-                txMsg[0].data[0] = (uint16_t)(periodicCounter & 0xFFU);
-                txMsg[0].data[1] = (uint16_t)((periodicCounter >> 8U) & 0xFFU);
-                txMsg[0].data[2] = (uint16_t)((periodicCounter >> 16U) & 0xFFU);
-                txMsg[0].data[3] = (uint16_t)((periodicCounter >> 24U) & 0xFFU);
-                txMsg[0].data[4] = 0x00U;
+                if(rxStdId == requestMsgIds[counterIdx])
+                {
+                    matchedCounterIdx = counterIdx;
+                    break;
+                }
+            }
+
+            if((rxMsg.xtd == 0U) && (rxMsg.rtr == 0U) &&
+               (matchedCounterIdx < COUNTER_COUNT))
+            {
+                txMsg[0].id = ((uint32_t)responseMsgIds[matchedCounterIdx]
+                               << MCAN_STD_ID_SHIFT);
+                txMsg[0].data[0] =
+                    (uint16_t)(periodicCounter[matchedCounterIdx] & 0xFFU);
+                txMsg[0].data[1] =
+                    (uint16_t)((periodicCounter[matchedCounterIdx] >> 8U) &
+                               0xFFU);
+                txMsg[0].data[2] =
+                    (uint16_t)((periodicCounter[matchedCounterIdx] >> 16U) &
+                               0xFFU);
+                txMsg[0].data[3] =
+                    (uint16_t)((periodicCounter[matchedCounterIdx] >> 24U) &
+                               0xFFU);
+                txMsg[0].data[4] = (uint16_t)(matchedCounterIdx + 1U);
                 txMsg[0].data[5] = 0x00U;
                 txMsg[0].data[6] = 0x00U;
                 txMsg[0].data[7] = 0x00U;
@@ -297,6 +338,7 @@ static void MCANConfig(void)
     MCAN_MsgRAMConfigParams    msgRAMConfigParams;
     MCAN_BitTimingParams       bitTimes;
     MCAN_StdMsgIDFilterElement stdFilter;
+    uint32_t filterIdx = 0U;
 
     //
     //  Initializing all structs to zero to prevent stray values
@@ -388,11 +430,14 @@ static void MCANConfig(void)
     //
     MCAN_msgRAMConfig(MCANA_DRIVER_BASE, &msgRAMConfigParams);
 
-    stdFilter.sfid1 = PCAN_CMD_MSG_ID;
-    stdFilter.sfid2 = PCAN_CMD_MSG_ID;
     stdFilter.sfec  = MCAN_STDFILTEC_FIFO0;
     stdFilter.sft   = MCAN_STDFILT_DUAL;
-    MCAN_addStdMsgIDFilter(MCANA_DRIVER_BASE, 0U, &stdFilter);
+    for(filterIdx = 0U; filterIdx < COUNTER_COUNT; filterIdx++)
+    {
+        stdFilter.sfid1 = requestMsgIds[filterIdx];
+        stdFilter.sfid2 = requestMsgIds[filterIdx];
+        MCAN_addStdMsgIDFilter(MCANA_DRIVER_BASE, filterIdx, &stdFilter);
+    }
 
     //
     // Take MCAN out of the SW initialization mode
