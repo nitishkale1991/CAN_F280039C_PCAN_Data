@@ -78,7 +78,7 @@
 #define NUM_OF_MSG                      (1U)
 #define MCAN_STD_ID_FILTER_NUM          (COUNTER_COUNT)
 #define MCAN_EXT_ID_FILTER_NUM          (0U)
-#define MCAN_FIFO_0_NUM                 (COUNTER_COUNT)
+#define MCAN_FIFO_0_NUM                 (16U)
 #define MCAN_FIFO_0_ELEM_SIZE           (MCAN_ELEM_SIZE_8BYTES)
 #define MCAN_FIFO_1_NUM                 (0U)
 #define MCAN_FIFO_1_ELEM_SIZE           (MCAN_ELEM_SIZE_64BYTES)
@@ -106,8 +106,24 @@
 #define PCAN_CMD_BASE_MSG_ID            (0x201U)
 #define MCAN_RESP_BASE_MSG_ID           (0x301U)
 #define MCAN_STD_ID_SHIFT               (18U)
-#define PERIODIC_LOOP_US                (100000U)
+#define VALID_REQUEST_DLC               (8U)
+#define MCAN_NOMINAL_BIT_RATE_KBPS      (500U)
+#define PERIODIC_LOOP_US                (10000U)
 #define PERIODIC_COUNTER_STEP           (1U)
+
+#if (MCAN_NOMINAL_BIT_RATE_KBPS == 500U)
+#define MCAN_NOM_RATE_PRESCALAR         (3U)
+#define MCAN_NOM_TIME_SEG1              (12U)
+#define MCAN_NOM_TIME_SEG2              (5U)
+#define MCAN_NOM_SJW                    (1U)
+#elif (MCAN_NOMINAL_BIT_RATE_KBPS == 250U)
+#define MCAN_NOM_RATE_PRESCALAR         (7U)
+#define MCAN_NOM_TIME_SEG1              (12U)
+#define MCAN_NOM_TIME_SEG2              (5U)
+#define MCAN_NOM_SJW                    (1U)
+#else
+#error Unsupported MCAN_NOMINAL_BIT_RATE_KBPS value
+#endif
 
 //
 // Global Variables.
@@ -129,6 +145,10 @@ static const uint32_t responseMsgIds[COUNTER_COUNT] =
     (MCAN_RESP_BASE_MSG_ID + 2U),
     (MCAN_RESP_BASE_MSG_ID + 3U),
     (MCAN_RESP_BASE_MSG_ID + 4U)
+};
+static const uint16_t validRequestData[VALID_REQUEST_DLC] =
+{
+    0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U, 0x00U
 };
 /*volatile uint32_t nbtp_reg;
 volatile uint32_t prescaler_reg;
@@ -170,6 +190,8 @@ void main()
     uint32_t rxStdId = 0U;
     uint32_t counterIdx = 0U;
     uint32_t matchedCounterIdx = COUNTER_COUNT;
+    uint32_t payloadIdx = 0U;
+    uint32_t validPayload = 0U;
     int i = 0;
     uint32_t dataBytes = 8U;
     MCAN_RxFIFOStatus rxFIFOStatus;
@@ -291,8 +313,21 @@ void main()
                 }
             }
 
+            validPayload = 1U;
+            for(payloadIdx = 0U; payloadIdx < VALID_REQUEST_DLC; payloadIdx++)
+            {
+                if(rxMsg.data[payloadIdx] != validRequestData[payloadIdx])
+                {
+                    validPayload = 0U;
+                    break;
+                }
+            }
+
             if((rxMsg.xtd == 0U) && (rxMsg.rtr == 0U) &&
-               (matchedCounterIdx < COUNTER_COUNT))
+               (rxMsg.fdf == 0U) &&
+               (rxMsg.dlc == VALID_REQUEST_DLC) &&
+               (matchedCounterIdx < COUNTER_COUNT) &&
+               (validPayload == 1U))
             {
                 txMsg[0].id = ((uint32_t)responseMsgIds[matchedCounterIdx]
                                << MCAN_STD_ID_SHIFT);
@@ -393,10 +428,11 @@ static void MCANConfig(void)
     // MCAN NBTP fields are register-coded values (actual timing uses +1).
     // For 500 kbps @ 40 MHz MCAN clock with 70% sample point:
     // NBRP=3 -> /4, NTSEG1=12 -> 13 tq, NTSEG2=5 -> 6 tq, NSJW=1 -> 2 tq.
-    bitTimes.nomRatePrescalar   = 3U;
-    bitTimes.nomTimeSeg1        = 12U;
-    bitTimes.nomTimeSeg2        = 5U;
-    bitTimes.nomSynchJumpWidth  = 1U;
+    // For 250 kbps, change MCAN_NOMINAL_BIT_RATE_KBPS to 250U.
+    bitTimes.nomRatePrescalar   = MCAN_NOM_RATE_PRESCALAR;
+    bitTimes.nomTimeSeg1        = MCAN_NOM_TIME_SEG1;
+    bitTimes.nomTimeSeg2        = MCAN_NOM_TIME_SEG2;
+    bitTimes.nomSynchJumpWidth  = MCAN_NOM_SJW;
     //
     // Wait for memory initialization to happen.
     //
